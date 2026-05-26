@@ -62,7 +62,9 @@ def get_optimal_route():
     final_result = find_cat_optimal_route(start, end, hour)
     return jsonify(final_result)
 
+
 if __name__ == '__main__':
-    load_ai_models()
-    # ODsay에 등록된 포트 8000번으로 정확하게 구동
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    import os
+    # Render의 환경변수 PORT를 읽어오고, 없으면 기본값 5000을 사용합니다.
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
