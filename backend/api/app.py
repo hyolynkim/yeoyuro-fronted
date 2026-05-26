@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS  # 1. CORS 패키지 불러오기
 import joblib
 import os
 import sys
@@ -10,6 +11,9 @@ sys.path.append(BASE_DIR)
 from models.route_finder import find_cat_optimal_route
 
 app = Flask(__name__)
+
+# 2. CORS 전면 허용 설정 (프론트엔드 연동 시 에러 방지)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # 브라우저에서 한글이 깨지지 않고 정상 출력되도록 설정
 app.config['JSON_AS_ASCII'] = False
