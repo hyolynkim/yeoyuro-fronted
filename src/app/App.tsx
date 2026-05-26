@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
+
+const API_BASE = "https://subway-congestion-api.onrender.com";
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from "react-router";
 import { Search, User, History, MapPin, Navigation, Clock, Zap, TrendingDown, Home, Map, Star, Train, Bus, Car, X, Check } from "lucide-react";
 import { ImageWithFallback } from "./components/figma/ImageWithFallback";
-
-const API_BASE = "https://subway-congestion-api.onrender.com";
 
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
@@ -252,18 +252,29 @@ function FavoritesTab({ setDeparture, setArrival, setActiveTab }: {
 
 function CongestionTab() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [congestionData, setCongestionData] = useState<any[]>([]);
+  const [selectedLine, setSelectedLine] = useState("");
+  const [allData, setAllData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinutes = now.getMinutes() >= 30 ? "30분" : "00분";
+  const currentTimeLabel = `${currentHour}시${currentMinutes}`;
+  const dayOfWeek = now.getDay();
+  const dayType = dayOfWeek === 0 ? "일요일" : dayOfWeek === 6 ? "토요일" : "평일";
+
+  const lines = ["1호선","2호선","3호선","4호선","5호선","6호선","7호선","8호선"];
+
   useEffect(() => {
-    fetch(`${API_BASE}/congestion/summary`)
+    fetch(`${API_BASE}/congestion`)
       .then(res => {
         if (!res.ok) throw new Error("데이터를 불러오지 못했습니다.");
         return res.json();
       })
       .then(data => {
-        setCongestionData(Array.isArray(data) ? data : []);
+        const list = Array.isArray(data) ? data : data.data ?? [];
+        setAllData(list);
         setLoading(false);
       })
       .catch(err => {
@@ -272,73 +283,92 @@ function CongestionTab() {
       });
   }, []);
 
+  // 현재 시간대 + 요일 + 검색어 + 호선으로 필터링
+  const filtered = allData.filter(item => {
+    const matchTime = item["시간대"] === currentTimeLabel;
+    const matchDay = item["요일구분"] === dayType;
+    const matchLine = !selectedLine || item["호선"] === selectedLine;
+    const matchStation = !searchQuery || item["출발역"]?.includes(searchQuery.replace("역", ""));
+    return matchTime && matchDay && matchLine && matchStation;
+  });
+
   const getCongestionColor = (value: number) => {
     if (value >= 80) return { badge: "bg-red-100 text-red-700", bar: "bg-red-500", label: "혼잡" };
-    if (value >= 50) return { badge: "bg-yellow-100 text-yellow-700", bar: "bg-yellow-500", label: "보통" };
+    if (value >= 30) return { badge: "bg-yellow-100 text-yellow-700", bar: "bg-yellow-500", label: "보통" };
     return { badge: "bg-green-100 text-green-700", bar: "bg-green-500", label: "쾌적" };
   };
 
-  const filtered = congestionData.filter(item =>
-    !searchQuery ||
-    item.station_name?.includes(searchQuery) ||
-    item.line_name?.includes(searchQuery)
-  );
-
   return (
     <div className="p-4 space-y-4">
-      <h2 className="text-xl font-bold text-gray-800">실시간 혼잡도</h2>
-
-      <div className="bg-white rounded-xl p-3 shadow-md">
-        <div className="flex items-center gap-2">
-          <Search className="w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="노선, 역 이름 검색"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="flex-1 outline-none text-gray-800 placeholder-gray-400"
-          />
-        </div>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold text-gray-800">실시간 혼잡도</h2>
+        <span className="text-sm text-gray-500">{currentTimeLabel} ({dayType})</span>
       </div>
 
-      {loading && (
-        <div className="text-center py-10 text-gray-500">혼잡도 데이터 불러오는 중...</div>
-      )}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        <button
+          onClick={() => setSelectedLine("")}
+          className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${selectedLine === "" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600"}`}
+        >
+          전체
+        </button>
+        {lines.map((line, idx) => (
+          <button
+            key={idx}
+            onClick={() => setSelectedLine(line)}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${selectedLine === line ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600"}`}
+          >
+            {line}
+          </button>
+        ))}
+      </div>
 
-      {error && (
-        <div className="text-center py-10 text-red-500">{error}</div>
-      )}
+      <div className="bg-white rounded-xl p-3 shadow-md flex items-center gap-2">
+        <Search className="w-5 h-5 text-gray-400" />
+        <input
+          type="text"
+          placeholder="역 이름 검색 (예: 강남)"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="flex-1 outline-none text-gray-800 placeholder-gray-400"
+        />
+      </div>
 
-      <div className="space-y-3">
-        {!loading && !error && filtered.map((item, idx) => {
-          const congestion = getCongestionColor(item.congestion_rate ?? item.average_congestion ?? 0);
-          const percentage = item.congestion_rate ?? item.average_congestion ?? 0;
-          return (
-            <div key={idx} className="bg-white rounded-xl p-4 shadow-md">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <span className="font-bold text-gray-800">{item.station_name ?? item.station}</span>
-                  <span className="ml-2 text-sm text-gray-600">{item.line_name ?? item.line}</span>
+      <p className="text-xs text-gray-400">현재 시간({currentTimeLabel}, {dayType}) 기준 혼잡도입니다</p>
+
+      {loading && <div className="text-center py-10 text-gray-500">혼잡도 데이터 불러오는 중...</div>}
+      {error && <div className="text-center py-10 text-red-500">{error}</div>}
+
+      {!loading && !error && (
+        <div className="space-y-3">
+          {filtered.length > 0 ? filtered.map((item: any, idx: number) => {
+            const percentage = Number(item["혼잡도"] ?? 0);
+            const congestion = getCongestionColor(percentage);
+            const displayPercent = Math.min(Math.round(percentage), 100);
+            return (
+              <div key={idx} className="bg-white rounded-xl p-4 shadow-md">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <span className="font-bold text-gray-800">{item["출발역"]}역</span>
+                    <span className="ml-2 text-sm text-gray-500">{item["호선"]} {item["상하구분"]}</span>
+                  </div>
+                  <span className={`px-3 py-1 rounded-full text-sm font-semibold ${congestion.badge}`}>
+                    {congestion.label}
+                  </span>
                 </div>
-                <span className={`px-3 py-1 rounded-full text-sm font-semibold ${congestion.badge}`}>
-                  {congestion.label}
-                </span>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className={`h-2 rounded-full ${congestion.bar}`} style={{ width: `${displayPercent}%` }} />
+                </div>
+                <div className="text-right text-xs text-gray-400 mt-1">혼잡도 {percentage}</div>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className={`h-2 rounded-full ${congestion.bar}`}
-                  style={{ width: `${Math.min(percentage, 100)}%` }}
-                />
-              </div>
-              <div className="text-right text-xs text-gray-400 mt-1">{percentage}%</div>
+            );
+          }) : (
+            <div className="text-center py-10 text-gray-400">
+              {searchQuery ? `"${searchQuery}" 검색 결과가 없습니다.` : "현재 시간대 데이터가 없습니다."}
             </div>
-          );
-        })}
-
-        {!loading && !error && filtered.length === 0 && (
-          <div className="text-center py-10 text-gray-400">검색 결과가 없습니다.</div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
