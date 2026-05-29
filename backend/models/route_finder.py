@@ -1,12 +1,11 @@
 import requests
 import urllib.parse
 
-# API Key 설정
 ODSAY_API_KEY = "MRru/5qfTWVBfehL8LUgxA"
 KAKAO_REST_API_KEY = "6c220101133197233daf87a3ec931801"
 
 def get_coords_from_keyword(keyword):
-    """카카오 로컬 API 좌표 변환 (100% 실시간 호출)"""
+    """카카오 로컬 API 좌표 변환"""
     url = "https://dapi.kakao.com/v2/local/search/keyword.json"
     headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
     params = {"query": keyword}
@@ -24,8 +23,55 @@ def get_coords_from_keyword(keyword):
         
     return None, None
 
+# ================================
+# 서울-경기권 광역버스 판별 함수
+# ================================
+def is_express_bus(bus_no: str) -> bool:
+    bus_no = str(bus_no).strip()
+
+    # M버스 (광역급행버스)
+    if bus_no.startswith("M"):
+        return True
+
+    # G버스 (경기도 버스)
+    if bus_no.startswith("G"):
+        return True
+
+    # 서울 광역버스 (9xxx)
+    if bus_no.startswith("9") and len(bus_no) == 4:
+        return True
+
+    # 경기 광역버스 번호 목록
+    express_prefixes = [
+        # 1000번대
+        "1000", "1001", "1002", "1003", "1004", "1005", "1006",
+        "1007", "1008", "1009", "1010", "1011", "1030",
+        # 2000번대
+        "2000", "2001", "2002", "2003",
+        # 3000번대
+        "3000", "3001", "3002", "3003", "3007", "3100",
+        # 5000번대 (광역버스 핵심)
+        "5000", "5001", "5002", "5003", "5004", "5005",
+        "5500", "5600", "5700",
+        # 6000번대
+        "6000", "6001", "6002", "6003", "6004", "6005",
+        "6006", "6007", "6008", "6009", "6010",
+        # 7000번대
+        "7000", "7001", "7002", "7003", "7004", "7005",
+        "7006", "7007", "7770",
+        # 8000번대
+        "8001", "8002", "8003", "8004", "8005",
+        "8100", "8109", "8110",
+    ]
+
+    for prefix in express_prefixes:
+        if bus_no.startswith(prefix):
+            return True
+
+    return False
+
 def extract_sub_paths(path):
-    """ODsay 원본 데이터에서 상세 이동 수단(지하철, 버스, 도보) 추출"""
+    """ODsay 원본 데이터에서 상세 이동 수단 추출"""
     sub_paths = []
     for sub_path in path.get("subPath", []):
         traffic_type = sub_path.get("trafficType")
@@ -47,6 +93,7 @@ def extract_sub_paths(path):
         elif traffic_type == 2:  # 버스
             lanes = sub_path.get("lane", [])
             bus_no = lanes[0].get("busNo", "") if lanes else ""
+            express = is_express_bus(bus_no)  # ✅ 광역버스 판별 함수 사용
             sub_paths.append({
                 "traffic_type": 2,
                 "type_name": "버스",
@@ -55,7 +102,7 @@ def extract_sub_paths(path):
                 "end_name": sub_path.get("endName", ""),
                 "station_count": sub_path.get("stationCount", 0),
                 "section_time_min": sub_path.get("sectionTime", 0),
-                "is_express": "5000" in bus_no or "5005" in bus_no,
+                "is_express": express,
                 "stations": [stop.get("stationName") for stop in sub_path.get("passStopList", {}).get("stations", [])],
                 "bus_congestion": None
             })
@@ -106,7 +153,11 @@ def find_cat_optimal_route(start_name, end_name, departure_hour):
         transfer_count = path["info"].get("transferCount", 0)
         
         detailed_segments = extract_sub_paths(path)
-        has_express_bus = any(seg.get("is_express", False) for seg in detailed_segments if seg["traffic_type"] == 2)
+        has_express_bus = any(
+            seg.get("is_express", False)
+            for seg in detailed_segments
+            if seg["traffic_type"] == 2
+        )
         
         total_penalty = 0
         if has_express_bus and (8 <= departure_hour <= 10 or 18 <= departure_hour <= 20):
@@ -125,8 +176,12 @@ def find_cat_optimal_route(start_name, end_name, departure_hour):
             "last_end_station": path["info"].get("lastEndStation", ""),
             "sub_paths": detailed_segments
         })
-        
-    refined_paths.sort(key=lambda x: x["estimated_comfort_time_min"])
+
+    # ✅ 광역버스 포함 경로를 상위로 정렬 후 소요시간 순 정렬
+    refined_paths.sort(key=lambda x: (
+        not x["has_express_bus"],  # 광역버스 있는 경로 먼저
+        x["estimated_comfort_time_min"]
+    ))
     
     return {
         "status": "success",

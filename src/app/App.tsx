@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 
-// ⭕ 로컬 Flask 백엔드 서버 주소로 테스트를 진행합니다.
 const API_BASE = "https://subway-congestion-api.onrender.com";
-const ROUTE_API_BASE = "https://demo-repository-9m2f.onrender.com"; 
+const ROUTE_API_BASE = "https://yeoyuro-backend.onrender.com";
 
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from "react-router";
 import { Search, User, MapPin, Navigation, TrendingDown, Home, Map, X, Check } from "lucide-react";
@@ -113,7 +112,6 @@ function MainScreen() {
       />
 
       <div className="relative z-10 flex-1 flex flex-col overflow-hidden">
-        {/* 탭 */}
         <div className="bg-white border-b border-gray-200 p-3 flex gap-2 overflow-x-auto">
           <button
             onClick={() => setActiveTab("myTransit")}
@@ -134,7 +132,6 @@ function MainScreen() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {/* 공지/팁 배너 */}
           <div className="px-4 pt-4">
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
               {tips.map((tip, idx) => (
@@ -169,7 +166,6 @@ function MainScreen() {
             </div>
           </div>
 
-          {/* 탭 컨텐츠 */}
           <div className="pt-3">
             {activeTab === "myTransit" && <MyTransitTab />}
             {activeTab === "congestion" && <CongestionTab />}
@@ -209,7 +205,6 @@ function CongestionTab() {
   const currentTimeLabel = `${currentHour}시${currentMinutes}`;
   const dayOfWeek = now.getDay();
   const dayType = dayOfWeek === 0 ? "일요일" : dayOfWeek === 6 ? "토요일" : "평일";
-
   const lines = ["1호선","2호선","3호선","4호선","5호선","6호선","7호선","8호선"];
 
   useEffect(() => {
@@ -249,7 +244,6 @@ function CongestionTab() {
         <h2 className="text-xl font-bold text-gray-800">실시간 혼잡도</h2>
         <span className="text-sm text-gray-500">{currentTimeLabel} ({dayType})</span>
       </div>
-
       <div className="flex gap-2 overflow-x-auto pb-1">
         <button
           onClick={() => setSelectedLine("")}
@@ -267,7 +261,6 @@ function CongestionTab() {
           </button>
         ))}
       </div>
-
       <div className="bg-white rounded-xl p-3 shadow-md flex items-center gap-2">
         <Search className="w-5 h-5 text-gray-400" />
         <input
@@ -278,12 +271,9 @@ function CongestionTab() {
           className="flex-1 outline-none text-gray-800 placeholder-gray-400"
         />
       </div>
-
       <p className="text-xs text-gray-400">현재 시간({currentTimeLabel}, {dayType}) 기준 혼잡도입니다</p>
-
       {loading && <div className="text-center py-10 text-gray-500">혼잡도 데이터 불러오는 중...</div>}
       {error && <div className="text-center py-10 text-red-500">{error}</div>}
-
       {!loading && !error && (
         <div className="space-y-3">
           {filtered.length > 0 ? filtered.map((item: any, idx: number) => {
@@ -332,14 +322,12 @@ function BottomNavigation({ onSearchClick }: { onSearchClick?: () => void }) {
         <Home className="w-6 h-6" />
         <span className="text-xs">홈</span>
       </button>
-
       <button
         onClick={onSearchClick ?? (() => navigate("/"))}
         className="-mt-6 bg-blue-600 text-white w-14 h-14 rounded-full shadow-lg flex items-center justify-center hover:bg-blue-700 transition-colors"
       >
         <Search className="w-6 h-6" />
       </button>
-
       <button
         onClick={() => navigate("/account")}
         className={`flex flex-col items-center gap-1 transition-colors ${isActive("/account") ? "text-blue-600" : "text-gray-600 hover:text-blue-600"}`}
@@ -351,33 +339,38 @@ function BottomNavigation({ onSearchClick }: { onSearchClick?: () => void }) {
   );
 }
 
-// 🎯 [100% 매핑 완료] sub_paths 원본 매핑 오류 수정 완료본 컴포넌트
 function RouteResultScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const { departure, arrival } = (location.state as { departure: string; arrival: string }) || {};
 
   const [routes, setRoutes] = useState<any[]>([]);
+  const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
 
   useEffect(() => {
     if (!departure || !arrival) return;
-    
-    const currentHour = new Date().getHours();
-    
-    fetch(`${ROUTE_API_BASE}/api/routes?start=${encodeURIComponent(departure)}&end=${encodeURIComponent(arrival)}&hour=${currentHour}`)
+
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const jsDay = now.getDay();
+    const currentWeekday = jsDay === 0 ? 6 : jsDay - 1;
+
+    fetch(`${ROUTE_API_BASE}/api/routes?start=${encodeURIComponent(departure)}&end=${encodeURIComponent(arrival)}&hour=${currentHour}&minute=${currentMinute}&weekday=${currentWeekday}`)
       .then(res => {
         if (!res.ok) throw new Error("경로를 불러오지 못했습니다.");
         return res.json();
       })
-      .then(data => {
-        if (data.status === "fail") {
-          throw new Error(data.message || "위치를 지도에서 찾을 수 없습니다.");
+      .then(result => {
+        if (result.status === "fail") {
+          throw new Error(result.message || "위치를 지도에서 찾을 수 없습니다.");
         }
-        const list = Array.isArray(data) ? data : data.routes ?? [];
-        setRoutes(list.slice(0, 5));
+        setData(result);
+        const list = Array.isArray(result) ? result : result.routes ?? [];
+        setRoutes(list.slice(0, 10)); // ✅ 10개로 확대
         setLoading(false);
       })
       .catch(err => {
@@ -439,7 +432,7 @@ function RouteResultScreen() {
             {routes.map((route, idx) => (
               <button
                 key={idx}
-                onClick={() => { setSelectedIdx(idx); }}
+                onClick={() => setSelectedIdx(idx)}
                 className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 transition-all ${
                   selectedIdx === idx
                     ? "bg-blue-600 text-white border-blue-600"
@@ -456,6 +449,11 @@ function RouteResultScreen() {
             <div className="bg-white rounded-xl p-4 shadow-md border-2 border-blue-200">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-lg text-gray-800">{getRouteLabel(selectedIdx)}</h3>
+                {data?.is_rush_hour && (
+                  <span className="px-3 py-1 bg-orange-100 text-orange-600 rounded-full text-xs font-bold">
+                    🚨 러시아워
+                  </span>
+                )}
               </div>
 
               <div className="grid grid-cols-3 gap-4 text-center mb-4">
@@ -479,7 +477,6 @@ function RouteResultScreen() {
                 </div>
               )}
 
-              {/* ⭕ 오타 완전 교정 완료 구역: 이제 sub_paths 리스트가 정상 표출됩니다. */}
               <div className="border-t border-gray-200 pt-4 space-y-4">
                 {currentRoute.sub_paths && currentRoute.sub_paths.length > 0 ? (
                   currentRoute.sub_paths.map((sub: any, sIdx: number) => (
@@ -487,7 +484,8 @@ function RouteResultScreen() {
                       <div className="flex items-start gap-3">
                         <div className={`w-16 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${
                           sub.traffic_type === 1 ? "bg-green-100 text-green-700" :
-                          sub.traffic_type === 2 ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"
+                          sub.traffic_type === 2 ? "bg-blue-100 text-blue-700" :
+                          "bg-gray-100 text-gray-600"
                         }`}>
                           {sub.traffic_type === 1 ? "지하철" : sub.traffic_type === 2 ? "버스" : "도보"}
                         </div>
@@ -496,7 +494,9 @@ function RouteResultScreen() {
                             {sub.traffic_type === 3 ? "도보 이동" : `${sub.start_name} ➡️ ${sub.end_name}`}
                           </div>
                           <div className="text-xs text-gray-500 mt-0.5">
-                            {sub.traffic_type !== 3 && sub.lane_name && <span className="font-medium text-gray-700 mr-2">[{sub.lane_name}]</span>}
+                            {sub.traffic_type !== 3 && sub.lane_name && (
+                              <span className="font-medium text-gray-700 mr-2">[{sub.lane_name}]</span>
+                            )}
                             <span>{sub.section_time_min}분 소요</span>
                             {sub.station_count > 0 && <span> ({sub.station_count}개 정거장)</span>}
                           </div>
@@ -529,15 +529,47 @@ function RouteResultScreen() {
               </div>
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-              <div className="flex items-start gap-2">
-                <TrendingDown className="w-5 h-5 text-blue-600 mt-0.5" />
-                <div>
-                  <h4 className="font-semibold text-blue-900 mb-1">혼잡도 정보</h4>
-                  <p className="text-sm text-blue-800">혼잡도 반영 추천 로직이 추가되면 여기에 표시됩니다.</p>
+            {/* ✅ 러시아워 / 혼잡도 정보 카드 */}
+            {data?.is_rush_hour && data?.rush_hour_result ? (
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-xl">🚨</span>
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-orange-900 mb-2">Gemini 러시아워 경로 추천</h4>
+                    <p className="text-sm text-orange-800 mb-2 leading-relaxed">
+                      {data.rush_hour_result.rush_hour_tip}
+                    </p>
+                    {data.rush_hour_result.alternative && (
+                      <div className="bg-orange-100 rounded-lg px-3 py-2 text-sm text-orange-700">
+                        💡 {data.rush_hour_result.alternative}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : data?.is_rush_hour ? (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-xl">⏰</span>
+                  <div>
+                    <h4 className="font-semibold text-yellow-900 mb-1">러시아워 시간대</h4>
+                    <p className="text-sm text-yellow-800">
+                      현재 경로는 러시아워 조건(환승 1회 이하 + 광역버스 포함)에 해당하지 않아 일반 경로로 안내합니다.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <div className="flex items-start gap-2">
+                  <TrendingDown className="w-5 h-5 text-blue-600 mt-0.5" />
+                  <div>
+                    <h4 className="font-semibold text-blue-900 mb-1">혼잡도 정보</h4>
+                    <p className="text-sm text-blue-800">현재는 러시아워 시간대가 아닙니다.</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="bg-white border-t border-gray-200 p-4">
@@ -552,7 +584,9 @@ function RouteResultScreen() {
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="text-center space-y-3">
             <p className="text-gray-500">검색된 경로가 없습니다.</p>
-            <button onClick={() => navigate(-1)} className="px-6 py-2 bg-blue-600 text-white rounded-xl font-semibold">화면 초기화</button>
+            <button onClick={() => navigate(-1)} className="px-6 py-2 bg-blue-600 text-white rounded-xl font-semibold">
+              돌아가기
+            </button>
           </div>
         </div>
       )}
@@ -560,7 +594,6 @@ function RouteResultScreen() {
   );
 }
 
-// 아래 기존 스크린 컴포넌트들은 완벽히 보존됩니다.
 function SignupScreen() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ username: "", password: "", confirmPassword: "", phone: "", email: "" });
