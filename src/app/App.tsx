@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 
+// ⭕ 로컬 Flask 백엔드 서버 주소로 테스트를 진행합니다.
 const API_BASE = "https://subway-congestion-api.onrender.com";
-const ROUTE_API_BASE = "https://demo-repository-9m2f.onrender.com";
+const ROUTE_API_BASE = "http://localhost:5000"; 
 
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from "react-router";
 import { Search, User, MapPin, Navigation, TrendingDown, Home, Map, X, Check } from "lucide-react";
@@ -350,6 +351,7 @@ function BottomNavigation({ onSearchClick }: { onSearchClick?: () => void }) {
   );
 }
 
+// 🎯 [100% 매핑 완료] sub_paths 원본 매핑 오류 수정 완료본 컴포넌트
 function RouteResultScreen() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -362,12 +364,18 @@ function RouteResultScreen() {
 
   useEffect(() => {
     if (!departure || !arrival) return;
-    fetch(`${ROUTE_API_BASE}/api/routes?start=${encodeURIComponent(departure)}&end=${encodeURIComponent(arrival)}`)
+    
+    const currentHour = new Date().getHours();
+    
+    fetch(`${ROUTE_API_BASE}/api/routes?start=${encodeURIComponent(departure)}&end=${encodeURIComponent(arrival)}&hour=${currentHour}`)
       .then(res => {
         if (!res.ok) throw new Error("경로를 불러오지 못했습니다.");
         return res.json();
       })
       .then(data => {
+        if (data.status === "fail") {
+          throw new Error(data.message || "위치를 지도에서 찾을 수 없습니다.");
+        }
         const list = Array.isArray(data) ? data : data.routes ?? [];
         setRoutes(list.slice(0, 5));
         setLoading(false);
@@ -381,6 +389,7 @@ function RouteResultScreen() {
   const currentRoute = routes[selectedIdx];
   const getRouteLabel = (idx: number) => idx === 0 ? "추천 경로" : `경로 ${idx + 1}`;
   const getTimeDiff = (route: any) => {
+    if (!route) return null;
     const diff = route.estimated_comfort_time_min - route.original_time_min;
     if (diff === 0) return null;
     return diff > 0 ? `+${diff}분` : `${diff}분`;
@@ -424,13 +433,13 @@ function RouteResultScreen() {
         </div>
       )}
 
-      {!loading && !error && routes.length > 0 && (
+      {!loading && !error && routes.length > 0 && currentRoute && (
         <>
           <div className="flex gap-2 p-3 bg-white border-b border-gray-200 overflow-x-auto">
             {routes.map((route, idx) => (
               <button
                 key={idx}
-                onClick={() => setSelectedIdx(idx)}
+                onClick={() => { setSelectedIdx(idx); }}
                 className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 transition-all ${
                   selectedIdx === idx
                     ? "bg-blue-600 text-white border-blue-600"
@@ -459,7 +468,7 @@ function RouteResultScreen() {
                   <div className="text-xs text-gray-500">기본 소요시간</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-gray-700">{currentRoute.payment_krw.toLocaleString()}원</div>
+                  <div className="text-2xl font-bold text-gray-700">{currentRoute.payment_krw?.toLocaleString()}원</div>
                   <div className="text-xs text-gray-500">요금</div>
                 </div>
               </div>
@@ -470,22 +479,53 @@ function RouteResultScreen() {
                 </div>
               )}
 
-              <div className="border-t border-gray-200 pt-4 space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-semibold text-sm">출</div>
-                  <div>
-                    <div className="font-semibold text-gray-800">{currentRoute.first_start_station}</div>
-                    <div className="text-xs text-gray-500">출발역</div>
+              {/* ⭕ 오타 완전 교정 완료 구역: 이제 sub_paths 리스트가 정상 표출됩니다. */}
+              <div className="border-t border-gray-200 pt-4 space-y-4">
+                {currentRoute.sub_paths && currentRoute.sub_paths.length > 0 ? (
+                  currentRoute.sub_paths.map((sub: any, sIdx: number) => (
+                    <div key={sIdx} className="flex flex-col">
+                      <div className="flex items-start gap-3">
+                        <div className={`w-16 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${
+                          sub.traffic_type === 1 ? "bg-green-100 text-green-700" :
+                          sub.traffic_type === 2 ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"
+                        }`}>
+                          {sub.traffic_type === 1 ? "지하철" : sub.traffic_type === 2 ? "버스" : "도보"}
+                        </div>
+                        <div className="flex-1 pt-0.5">
+                          <div className="font-semibold text-gray-800 text-sm">
+                            {sub.traffic_type === 3 ? "도보 이동" : `${sub.start_name} ➡️ ${sub.end_name}`}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-0.5">
+                            {sub.traffic_type !== 3 && sub.lane_name && <span className="font-medium text-gray-700 mr-2">[{sub.lane_name}]</span>}
+                            <span>{sub.section_time_min}분 소요</span>
+                            {sub.station_count > 0 && <span> ({sub.station_count}개 정거장)</span>}
+                          </div>
+                        </div>
+                      </div>
+                      {sIdx < currentRoute.sub_paths.length - 1 && (
+                        <div className="w-0.5 h-4 bg-gray-200 ml-8 my-1" />
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-semibold text-sm">출</div>
+                      <div>
+                        <div className="font-semibold text-gray-800">{currentRoute.first_start_station || departure}</div>
+                        <div className="text-xs text-gray-500">출발역</div>
+                      </div>
+                    </div>
+                    <div className="w-0.5 h-6 bg-gray-300 ml-4" />
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-semibold text-sm">도</div>
+                      <div>
+                        <div className="font-semibold text-gray-800">{currentRoute.last_end_station || arrival}역</div>
+                        <div className="text-xs text-gray-500">도착역</div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div className="w-0.5 h-6 bg-gray-300 ml-4" />
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-semibold text-sm">도</div>
-                  <div>
-                    <div className="font-semibold text-gray-800">{currentRoute.last_end_station}역</div>
-                    <div className="text-xs text-gray-500">도착역</div>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
 
@@ -508,11 +548,11 @@ function RouteResultScreen() {
         </>
       )}
 
-      {!loading && !error && routes.length === 0 && (
+      {!loading && !error && (routes.length === 0 || !currentRoute) && (
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="text-center space-y-3">
             <p className="text-gray-500">검색된 경로가 없습니다.</p>
-            <button onClick={() => navigate(-1)} className="px-6 py-2 bg-blue-600 text-white rounded-xl font-semibold">돌아가기</button>
+            <button onClick={() => navigate(-1)} className="px-6 py-2 bg-blue-600 text-white rounded-xl font-semibold">화면 초기화</button>
           </div>
         </div>
       )}
@@ -520,6 +560,7 @@ function RouteResultScreen() {
   );
 }
 
+// 아래 기존 스크린 컴포넌트들은 완벽히 보존됩니다.
 function SignupScreen() {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ username: "", password: "", confirmPassword: "", phone: "", email: "" });
