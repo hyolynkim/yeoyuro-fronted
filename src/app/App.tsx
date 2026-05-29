@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 
 // ⭕ 로컬 Flask 백엔드 서버 주소로 테스트를 진행합니다.
 const API_BASE = "https://subway-congestion-api.onrender.com";
-const ROUTE_API_BASE = "http://localhost:5000"; 
+const ROUTE_API_BASE = "https://demo-repository-9m2f.onrender.com"; 
 
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from "react-router";
 import { Search, User, MapPin, Navigation, TrendingDown, Home, Map, X, Check } from "lucide-react";
