@@ -1,8 +1,33 @@
 import requests
 import urllib.parse
 
-# 민진님의 인증 성공한 고유 API Key
+# 민진님의 인증 성공한 고유 API Key들
 ODSAY_API_KEY = "MRru/5qfTWVBfehL8LUgxA"
+KAKAO_REST_API_KEY = "6c220101133197233daf87a3ec931801"
+
+def get_coords_from_keyword(keyword):
+    """
+    카카오 로컬 API를 통해 장소명(텍스트)을 위도, 경도 좌표로 변환하는 함수
+    """
+    url = "https://dapi.kakao.com/v2/local/search/keyword.json"
+    headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
+    params = {"query": keyword}
+    
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=3.0)
+        if response.status_code == 200:
+            documents = response.json().get('documents')
+            if documents:
+                # 카카오 API 결과: x가 경도(longitude), y가 위도(latitude)
+                # ODsay API가 문자열 형태의 파라미터를 받으므로 str 타입으로 변환하여 반환합니다.
+                lon = str(documents[0]['x'])
+                lat = str(documents[0]['y'])
+                return lon, lat
+        print(f"안내(카카오 로컬 API): '{keyword}' 검색 결과가 없거나 실패했습니다.")
+    except Exception as e:
+        print(f"에러(카카오 API 호출 중): {e}")
+        
+    return None, None
 
 def get_odsay_route(sx, sy, ex, ey):
     """
@@ -61,12 +86,24 @@ def get_subway_congestion_from_api(line_name, station_name, hour):
 
 def find_cat_optimal_route(start_name, end_name, departure_hour):
     """
+    카카오 로컬 API로 유동적인 좌표를 추출한 뒤,
     ODsay API 데이터를 정제하고 혼잡도 가중치를 적용하여 깔끔한 JSON을 반환하는 함수
     """
-    # 성신여대입구역 -> 기흥역 좌표 설정
-    sx, sy = "127.016396", "37.592632"
-    ex, ey = "127.114704", "37.274944"
+    # 1. 🛑 [업데이트] 하드코딩된 좌표 대신 카카오 API를 활용해 동적으로 주소 분석
+    sx, sy = get_coords_from_keyword(start_name)
+    ex, ey = get_coords_from_keyword(end_name)
     
+    # 카카오 API가 좌표 변환에 실패한 경우 처리
+    if not sx or not ex:
+        return {
+            "status": "fail",
+            "error": "coordinates_not_found",
+            "message": f"출발지('{start_name}') 또는 목적지('{end_name}')의 위치를 지도에서 찾을 수 없습니다."
+        }
+        
+    print(f"[좌표 매핑 성공] {start_name}({sy}, {sx}) -> {end_name}({ey}, {ex})")
+    
+    # 2. 실시간 변환된 좌표로 ODsay 대중교통 경로 검색 수행
     odsay_data = get_odsay_route(sx, sy, ex, ey)
     
     # 예외 처리
