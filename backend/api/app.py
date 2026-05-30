@@ -156,11 +156,12 @@ def get_gemini_rush_hour_recommendation(routes, start, end, hour, minute, weekda
         }
 
     except Exception as e:
-        return {
-            "recommended_index": 0,
-            "rush_hour_tip": "분석 중 오류가 발생했습니다.",
-            "alternative": ""
-        }
+    print(f"Gemini 에러: {str(e)}")  # 추가
+    return {
+        "recommended_index": 0,
+        "rush_hour_tip": f"분석 중 오류: {str(e)}",  # 에러 내용 표시
+        "alternative": ""
+    }
 
 @app.route('/predict/congestion', methods=['POST'])
 def predict_congestion():
