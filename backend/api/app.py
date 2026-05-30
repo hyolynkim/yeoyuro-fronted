@@ -34,19 +34,17 @@ def load_ai_models():
         print("LSTM 스케일러 로드 완료.")
 
 # ================================
-# 러시아워 시간대 체크
-# 월~일: 오전 5:30~7:30 / 오후 4:30~8:30 (1시간 연장)
-# 금~토: 추가로 오후 9:00~11:00
+# 러시아워 시간대 체크 (시간만 체크)
 # ================================
 def is_rush_hour(hour, minute, weekday):
-    return True  # ✅ 테스트용: 항상 러시아워로 설정
+    return True  # ✅ 테스트용: 항상 러시아워
 
-    # 아래 코드는 테스트 후 주석 해제
+    # 테스트 끝나면 아래 주석 해제
     # total_min = hour * 60 + minute
     # morning_start = 5 * 60 + 30
     # morning_end   = 7 * 60 + 30
     # evening_start = 16 * 60 + 30
-    # evening_end   = 20 * 60 + 30
+    # evening_end   = 19 * 60 + 30
     # night_start   = 21 * 60
     # night_end     = 23 * 60
     # is_morning = morning_start <= total_min <= morning_end
@@ -60,11 +58,6 @@ def is_rush_hour(hour, minute, weekday):
     #         return True
     # return False
 
-def is_eligible_for_rush_hour(route):
-    transfer_count = route.get("transfer_count", 99)
-    has_express_bus = route.get("has_express_bus", False)
-    return transfer_count <= 1 and has_express_bus
-
 def get_weekday_korean(weekday):
     days = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
     return days[weekday] if 0 <= weekday <= 6 else "평일"
@@ -73,12 +66,15 @@ def get_rush_hour_type(hour, minute, weekday):
     total_min = hour * 60 + minute
     if 5 * 60 + 30 <= total_min <= 7 * 60 + 30:
         return "출근 러시아워"
-    elif 16 * 60 + 30 <= total_min <= 20 * 60 + 30:
+    elif 16 * 60 + 30 <= total_min <= 19 * 60 + 30:
         return "퇴근 러시아워"
     elif 21 * 60 <= total_min <= 23 * 60:
         return "심야 러시아워"
     return "러시아워"
 
+# ================================
+# Gemini 러시아워 경로 분석
+# ================================
 def get_gemini_rush_hour_recommendation(routes, start, end, hour, minute, weekday):
     if not GEMINI_API_KEY:
         return {
@@ -124,7 +120,6 @@ def get_gemini_rush_hour_recommendation(routes, start, end, hour, minute, weekda
 {json.dumps(routes_summary, ensure_ascii=False, indent=2)}
 
 위 정보를 바탕으로 다음을 분석해주세요:
-
 1. {rush_type} 시간대의 일반적인 광역버스 혼잡 패턴 고려
 2. 혼잡할 경우 1~2개 전 정거장에서 탑승하는 것이 유리한지 판단
 3. 버스보다 지하철이 더 나은 대안인지 판단
@@ -196,15 +191,14 @@ def get_optimal_route():
 
     routes = final_result.get("routes", [])
 
+    # ✅ 시간대만 체크 (환승/광역버스 조건 제거)
     rush_hour = is_rush_hour(hour, minute, weekday)
     rush_hour_result = None
 
     if rush_hour and routes:
-        primary_route = routes[0]
-        if is_eligible_for_rush_hour(primary_route):
-            rush_hour_result = get_gemini_rush_hour_recommendation(
-                routes, start, end, hour, minute, weekday
-            )
+        rush_hour_result = get_gemini_rush_hour_recommendation(
+            routes, start, end, hour, minute, weekday
+        )
 
     final_result["is_rush_hour"] = rush_hour
     final_result["rush_hour_result"] = rush_hour_result

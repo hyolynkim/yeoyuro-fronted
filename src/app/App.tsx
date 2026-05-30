@@ -370,7 +370,7 @@ function RouteResultScreen() {
         }
         setData(result);
         const list = Array.isArray(result) ? result : result.routes ?? [];
-        setRoutes(list.slice(0, 10)); // ✅ 10개로 확대
+        setRoutes(list.slice(0, 10));
         setLoading(false);
       })
       .catch(err => {
@@ -380,7 +380,15 @@ function RouteResultScreen() {
   }, [departure, arrival]);
 
   const currentRoute = routes[selectedIdx];
-  const getRouteLabel = (idx: number) => idx === 0 ? "추천 경로" : `경로 ${idx + 1}`;
+  const isRushHour = data?.is_rush_hour;
+
+  // ✅ 경로 라벨: 러시아워면 AI 러시아워 1/2/3, 나머지는 일반 경로
+  const getRouteLabel = (idx: number) => {
+    if (isRushHour && idx < 3) return `AI 러시아워 ${idx + 1}`;
+    const generalIdx = isRushHour ? idx - 3 + 1 : idx + 1;
+    return `일반 경로 ${generalIdx}`;
+  };
+
   const getTimeDiff = (route: any) => {
     if (!route) return null;
     const diff = route.estimated_comfort_time_min - route.original_time_min;
@@ -429,29 +437,41 @@ function RouteResultScreen() {
       {!loading && !error && routes.length > 0 && currentRoute && (
         <>
           <div className="flex gap-2 p-3 bg-white border-b border-gray-200 overflow-x-auto">
-            {routes.map((route, idx) => (
-              <button
-                key={idx}
-                onClick={() => setSelectedIdx(idx)}
-                className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 transition-all ${
-                  selectedIdx === idx
-                    ? "bg-blue-600 text-white border-blue-600"
-                    : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
-                }`}
-              >
-                <div className="text-sm font-semibold mb-1">{getRouteLabel(idx)}</div>
-                <div className="text-sm opacity-90">{route.estimated_comfort_time_min}분</div>
-              </button>
-            ))}
+            {routes.map((route, idx) => {
+              const isAI = isRushHour && idx < 3;
+              const isSelected = selectedIdx === idx;
+              return (
+                <button
+                  key={idx}
+                  onClick={() => setSelectedIdx(idx)}
+                  className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 transition-all ${
+                    isSelected
+                      ? isAI
+                        ? "bg-orange-500 text-white border-orange-500"
+                        : "bg-blue-600 text-white border-blue-600"
+                      : isAI
+                        ? "bg-orange-50 text-orange-700 border-orange-300 hover:border-orange-400"
+                        : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <div className="text-xs font-bold mb-1">
+                    {isAI ? "🤖 " : ""}{getRouteLabel(idx)}
+                  </div>
+                  <div className="text-sm opacity-90">{route.estimated_comfort_time_min}분</div>
+                </button>
+              );
+            })}
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <div className="bg-white rounded-xl p-4 shadow-md border-2 border-blue-200">
+            <div className={`bg-white rounded-xl p-4 shadow-md border-2 ${
+              isRushHour && selectedIdx < 3 ? "border-orange-300" : "border-blue-200"
+            }`}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-lg text-gray-800">{getRouteLabel(selectedIdx)}</h3>
-                {data?.is_rush_hour && (
+                {isRushHour && selectedIdx < 3 && (
                   <span className="px-3 py-1 bg-orange-100 text-orange-600 rounded-full text-xs font-bold">
-                    🚨 러시아워
+                    🤖 AI 추천
                   </span>
                 )}
               </div>
@@ -529,13 +549,13 @@ function RouteResultScreen() {
               </div>
             </div>
 
-            {/* ✅ 러시아워 / 혼잡도 정보 카드 */}
-            {data?.is_rush_hour && data?.rush_hour_result ? (
+            {/* ✅ 러시아워 Gemini 분석 카드 */}
+            {isRushHour && selectedIdx < 3 && data?.rush_hour_result ? (
               <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
                 <div className="flex items-start gap-2">
-                  <span className="text-xl">🚨</span>
+                  <span className="text-xl">🤖</span>
                   <div className="flex-1">
-                    <h4 className="font-semibold text-orange-900 mb-2">Gemini 러시아워 경로 추천</h4>
+                    <h4 className="font-semibold text-orange-900 mb-2">AI 러시아워 분석</h4>
                     <p className="text-sm text-orange-800 mb-2 leading-relaxed">
                       {data.rush_hour_result.rush_hour_tip}
                     </p>
@@ -547,14 +567,14 @@ function RouteResultScreen() {
                   </div>
                 </div>
               </div>
-            ) : data?.is_rush_hour ? (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+            ) : isRushHour && selectedIdx >= 3 ? (
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
                 <div className="flex items-start gap-2">
-                  <span className="text-xl">⏰</span>
+                  <TrendingDown className="w-5 h-5 text-gray-500 mt-0.5" />
                   <div>
-                    <h4 className="font-semibold text-yellow-900 mb-1">러시아워 시간대</h4>
-                    <p className="text-sm text-yellow-800">
-                      현재 경로는 러시아워 조건(환승 1회 이하 + 광역버스 포함)에 해당하지 않아 일반 경로로 안내합니다.
+                    <h4 className="font-semibold text-gray-700 mb-1">일반 경로</h4>
+                    <p className="text-sm text-gray-600">
+                      AI 추천 없이 ODsay 기본 경로입니다.
                     </p>
                   </div>
                 </div>
