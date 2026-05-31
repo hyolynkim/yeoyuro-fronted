@@ -4,8 +4,81 @@ const API_BASE = "https://subway-congestion-api.onrender.com";
 const ROUTE_API_BASE = "https://yeoyuro-backend.onrender.com";
 
 import { BrowserRouter as Router, Routes, Route, useNavigate, useLocation } from "react-router";
-import { Search, User, MapPin, Navigation, TrendingDown, Home, Map, X, Check } from "lucide-react";
+import { Search, User, MapPin, Navigation, TrendingDown, Home, Map, X, Check, Train } from "lucide-react";
 import { ImageWithFallback } from "./components/figma/ImageWithFallback";
+
+// ── 검색 기록 관리 ──────────────────────────────────────────────
+const HISTORY_KEY = "searchHistory";
+const MAX_HISTORY = 10;
+
+interface SearchRecord {
+  departure: string;
+  arrival: string;
+  count: number;
+  lastUsed: number;
+}
+
+const STATION_ALIASES: Record<string, string> = {
+  "성신여대": "성신여자대학교",
+  "성신여대입구": "성신여자대학교",
+  "홍대": "홍익대학교",
+  "홍대입구": "홍익대학교",
+  "건대": "건국대학교",
+  "건대입구": "건국대학교",
+  "이대": "이화여자대학교",
+  "이대입구": "이화여자대학교",
+  "외대": "한국외국어대학교",
+  "외대앞": "한국외국어대학교",
+  "시립대": "서울시립대학교",
+  "상암mbc": "상암MBC",
+};
+
+function normalizeName(raw: string): string {
+  const noSpace = raw.replace(/\s+/g, "").toLowerCase();
+  if (STATION_ALIASES[noSpace]) return STATION_ALIASES[noSpace];
+  const noSuffix = noSpace.replace(/역$/, "");
+  if (STATION_ALIASES[noSuffix]) return STATION_ALIASES[noSuffix];
+  return noSuffix;
+}
+
+function isSameStation(a: string, b: string): boolean {
+  return normalizeName(a) === normalizeName(b);
+}
+
+function loadHistory(): SearchRecord[] {
+  try {
+    return JSON.parse(sessionStorage.getItem(HISTORY_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function recordSearch(departure: string, arrival: string) {
+  const history = loadHistory();
+  const existing = history.find(
+    r => isSameStation(r.departure, departure) && isSameStation(r.arrival, arrival)
+  );
+  if (existing) {
+    existing.count += 1;
+    existing.lastUsed = Date.now();
+    existing.departure = departure;
+    existing.arrival = arrival;
+  } else {
+    history.push({ departure, arrival, count: 1, lastUsed: Date.now() });
+  }
+  const trimmed = history
+    .sort((a, b) => b.lastUsed - a.lastUsed)
+    .slice(0, MAX_HISTORY);
+  sessionStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));
+}
+
+function getFrequentRoutes(): SearchRecord[] {
+  return loadHistory()
+    .filter(r => r.count >= 2)
+    .sort((a, b) => b.count - a.count || b.lastUsed - a.lastUsed)
+    .slice(0, 5);
+}
+// ────────────────────────────────────────────────────────────────
 
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
@@ -36,6 +109,7 @@ function SearchModal({ onClose }: { onClose: () => void }) {
 
   const handleSearch = () => {
     if (departure && arrival) {
+      recordSearch(departure, arrival);
       onClose();
       navigate("/routes", { state: { departure, arrival } });
     }
@@ -180,14 +254,53 @@ function MainScreen() {
 }
 
 function MyTransitTab() {
+  const navigate = useNavigate();
+  const [frequentRoutes, setFrequentRoutes] = useState<ReturnType<typeof getFrequentRoutes>>([]);
+
+  useEffect(() => {
+    setFrequentRoutes(getFrequentRoutes());
+  }, []);
+
+  const handleRouteClick = (departure: string, arrival: string) => {
+    recordSearch(departure, arrival);
+    navigate("/routes", { state: { departure, arrival } });
+  };
+
   return (
     <div className="p-4 space-y-4">
       <h2 className="text-xl font-bold text-gray-800">자주 가는 경로</h2>
-      <div className="bg-white rounded-xl p-8 shadow-md text-center text-gray-400">
-        <MapPin className="w-10 h-10 mx-auto mb-3 text-gray-300" />
-        <p className="font-medium">아직 이용한 경로가 없어요</p>
-        <p className="text-sm mt-1">경로를 검색하면 여기에 표시됩니다</p>
-      </div>
+      {frequentRoutes.length === 0 ? (
+        <div className="bg-white rounded-xl p-8 shadow-md text-center text-gray-400">
+          <MapPin className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+          <p className="font-medium">아직 이용한 경로가 없어요</p>
+          <p className="text-sm mt-1">경로를 검색하면 여기에 표시됩니다</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {frequentRoutes.map((route, idx) => (
+            <button
+              key={idx}
+              onClick={() => handleRouteClick(route.departure, route.arrival)}
+              className="w-full bg-white rounded-xl p-4 shadow-md flex items-center gap-4 hover:bg-blue-50 transition-colors text-left"
+            >
+              <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                <div className="w-0.5 h-5 bg-gray-300" />
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-gray-800 truncate">{route.departure}</div>
+                <div className="font-semibold text-gray-800 truncate">{route.arrival}</div>
+              </div>
+              <div className="flex-shrink-0">
+                <span className="text-xs bg-blue-100 text-blue-700 font-semibold px-2 py-1 rounded-full">
+                  {route.count}회
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -244,7 +357,22 @@ function CongestionTab() {
         <h2 className="text-xl font-bold text-gray-800">실시간 혼잡도</h2>
         <span className="text-sm text-gray-500">{currentTimeLabel} ({dayType})</span>
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1">
+
+      <div className="bg-white rounded-xl p-3 shadow-md flex items-center gap-2">
+        <Search className="w-5 h-5 text-gray-400" />
+        <input
+          type="text"
+          placeholder="역 이름 검색 (예: 강남)"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="flex-1 outline-none text-gray-800 placeholder-gray-400"
+        />
+      </div>
+
+      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        <div className="flex-shrink-0 pl-1 pr-1">
+          <Train className="w-5 h-5 text-gray-400" />
+        </div>
         <button
           onClick={() => setSelectedLine("")}
           className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-semibold transition-colors ${selectedLine === "" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600"}`}
@@ -261,44 +389,38 @@ function CongestionTab() {
           </button>
         ))}
       </div>
-      <div className="bg-white rounded-xl p-3 shadow-md flex items-center gap-2">
-        <Search className="w-5 h-5 text-gray-400" />
-        <input
-          type="text"
-          placeholder="역 이름 검색 (예: 강남)"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="flex-1 outline-none text-gray-800 placeholder-gray-400"
-        />
-      </div>
+
       <p className="text-xs text-gray-400">현재 시간({currentTimeLabel}, {dayType}) 기준 혼잡도입니다</p>
+
       {loading && <div className="text-center py-10 text-gray-500">혼잡도 데이터 불러오는 중...</div>}
       {error && <div className="text-center py-10 text-red-500">{error}</div>}
+
       {!loading && !error && (
-        <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
           {filtered.length > 0 ? filtered.map((item: any, idx: number) => {
             const percentage = Number(item["혼잡도"] ?? 0);
             const congestion = getCongestionColor(percentage);
             const displayPercent = Math.min(Math.round(percentage), 100);
             return (
-              <div key={idx} className="bg-white rounded-xl p-4 shadow-md">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <span className="font-bold text-gray-800">{item["출발역"]}역</span>
-                    <span className="ml-2 text-sm text-gray-500">{item["호선"]} {item["상하구분"]}</span>
+              <div key={idx} className="bg-white rounded-xl p-3 shadow-sm flex flex-col justify-between border border-gray-100">
+                <div className="flex flex-col mb-2 gap-1">
+                  <div className="flex items-start justify-between gap-1">
+                    <span className="font-bold text-gray-800 text-base truncate">{item["출발역"]}</span>
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] whitespace-nowrap font-semibold flex-shrink-0 ${congestion.badge}`}>
+                      {congestion.label}
+                    </span>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-sm font-semibold ${congestion.badge}`}>
-                    {congestion.label}
-                  </span>
+                  <span className="text-xs text-gray-500 truncate">{item["호선"]} {item["상하구분"]}</span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className={`h-2 rounded-full ${congestion.bar}`} style={{ width: `${displayPercent}%` }} />
+                <div className="mt-auto pt-2">
+                  <div className="w-full bg-gray-100 rounded-full h-2">
+                    <div className={`h-2 rounded-full ${congestion.bar}`} style={{ width: `${displayPercent}%` }} />
+                  </div>
                 </div>
-                <div className="text-right text-xs text-gray-400 mt-1">혼잡도 {percentage}</div>
               </div>
             );
           }) : (
-            <div className="text-center py-10 text-gray-400">
+            <div className="col-span-2 text-center py-10 text-gray-400 text-sm">
               {searchQuery ? `"${searchQuery}" 검색 결과가 없습니다.` : "현재 시간대 데이터가 없습니다."}
             </div>
           )}
@@ -382,7 +504,6 @@ function RouteResultScreen() {
   const currentRoute = routes[selectedIdx];
   const isRushHour = data?.is_rush_hour;
 
-  // ✅ 경로 라벨: 러시아워면 AI 러시아워 1/2/3, 나머지는 일반 경로
   const getRouteLabel = (idx: number) => {
     if (isRushHour && idx < 3) return `AI 러시아워 ${idx + 1}`;
     const generalIdx = isRushHour ? idx - 3 + 1 : idx + 1;
@@ -446,17 +567,11 @@ function RouteResultScreen() {
                   onClick={() => setSelectedIdx(idx)}
                   className={`flex-shrink-0 px-4 py-3 rounded-xl border-2 transition-all ${
                     isSelected
-                      ? isAI
-                        ? "bg-orange-500 text-white border-orange-500"
-                        : "bg-blue-600 text-white border-blue-600"
-                      : isAI
-                        ? "bg-orange-50 text-orange-700 border-orange-300 hover:border-orange-400"
-                        : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
+                      ? isAI ? "bg-orange-500 text-white border-orange-500" : "bg-blue-600 text-white border-blue-600"
+                      : isAI ? "bg-orange-50 text-orange-700 border-orange-300 hover:border-orange-400" : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
                   }`}
                 >
-                  <div className="text-xs font-bold mb-1">
-                    {isAI ? "🤖 " : ""}{getRouteLabel(idx)}
-                  </div>
+                  <div className="text-xs font-bold mb-1">{isAI ? "🤖 " : ""}{getRouteLabel(idx)}</div>
                   <div className="text-sm opacity-90">{route.estimated_comfort_time_min}분</div>
                 </button>
               );
@@ -464,15 +579,11 @@ function RouteResultScreen() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <div className={`bg-white rounded-xl p-4 shadow-md border-2 ${
-              isRushHour && selectedIdx < 3 ? "border-orange-300" : "border-blue-200"
-            }`}>
+            <div className={`bg-white rounded-xl p-4 shadow-md border-2 ${isRushHour && selectedIdx < 3 ? "border-orange-300" : "border-blue-200"}`}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-lg text-gray-800">{getRouteLabel(selectedIdx)}</h3>
                 {isRushHour && selectedIdx < 3 && (
-                  <span className="px-3 py-1 bg-orange-100 text-orange-600 rounded-full text-xs font-bold">
-                    🤖 AI 추천
-                  </span>
+                  <span className="px-3 py-1 bg-orange-100 text-orange-600 rounded-full text-xs font-bold">🤖 AI 추천</span>
                 )}
               </div>
 
@@ -504,8 +615,7 @@ function RouteResultScreen() {
                       <div className="flex items-start gap-3">
                         <div className={`w-16 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${
                           sub.traffic_type === 1 ? "bg-green-100 text-green-700" :
-                          sub.traffic_type === 2 ? "bg-blue-100 text-blue-700" :
-                          "bg-gray-100 text-gray-600"
+                          sub.traffic_type === 2 ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"
                         }`}>
                           {sub.traffic_type === 1 ? "지하철" : sub.traffic_type === 2 ? "버스" : "도보"}
                         </div>
@@ -549,7 +659,6 @@ function RouteResultScreen() {
               </div>
             </div>
 
-            {/* ✅ 러시아워 Gemini 분석 카드 */}
             {isRushHour && selectedIdx < 3 && data?.rush_hour_result ? (
               <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
                 <div className="flex items-start gap-2">
@@ -573,9 +682,7 @@ function RouteResultScreen() {
                   <TrendingDown className="w-5 h-5 text-gray-500 mt-0.5" />
                   <div>
                     <h4 className="font-semibold text-gray-700 mb-1">일반 경로</h4>
-                    <p className="text-sm text-gray-600">
-                      AI 추천 없이 ODsay 기본 경로입니다.
-                    </p>
+                    <p className="text-sm text-gray-600">AI 추천 없이 ODsay 기본 경로입니다.</p>
                   </div>
                 </div>
               </div>
@@ -604,9 +711,7 @@ function RouteResultScreen() {
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="text-center space-y-3">
             <p className="text-gray-500">검색된 경로가 없습니다.</p>
-            <button onClick={() => navigate(-1)} className="px-6 py-2 bg-blue-600 text-white rounded-xl font-semibold">
-              돌아가기
-            </button>
+            <button onClick={() => navigate(-1)} className="px-6 py-2 bg-blue-600 text-white rounded-xl font-semibold">돌아가기</button>
           </div>
         </div>
       )}
@@ -623,18 +728,21 @@ function SignupScreen() {
   const handleCheckUsername = () => {
     if (!formData.username) return;
     setIsCheckingUsername(true);
-    setTimeout(() => {
-      setUsernameAvailable(Math.random() > 0.5);
-      setIsCheckingUsername(false);
-    }, 500);
+    const users = JSON.parse(localStorage.getItem("users") || "[]");
+    const exists = users.some((u: any) => u.username === formData.username);
+    setUsernameAvailable(!exists);
+    setIsCheckingUsername(false);
   };
 
   const handleSubmit = () => {
     if (!formData.username || !formData.password || !formData.phone || !formData.email) { alert("모든 항목을 입력해주세요."); return; }
     if (formData.password !== formData.confirmPassword) { alert("비밀번호가 일치하지 않습니다."); return; }
     if (!usernameAvailable) { alert("아이디 중복확인을 해주세요."); return; }
+    const users = JSON.parse(localStorage.getItem("users") || "[]");
+    users.push({ username: formData.username, password: formData.password, email: formData.email, phone: formData.phone });
+    localStorage.setItem("users", JSON.stringify(users));
     alert("회원가입이 완료되었습니다!");
-    navigate("/");
+    navigate("/login");
   };
 
   return (
@@ -686,6 +794,55 @@ function SignupScreen() {
   );
 }
 
+function LoginScreen() {
+  const navigate = useNavigate();
+  const [formData, setFormData] = useState({ username: "", password: "" });
+  const [error, setError] = useState("");
+
+  const handleLogin = () => {
+    if (!formData.username || !formData.password) { setError("아이디와 비밀번호를 입력해주세요."); return; }
+    const users = JSON.parse(localStorage.getItem("users") || "[]");
+    const user = users.find((u: any) => u.username === formData.username && u.password === formData.password);
+    if (!user) { setError("아이디 또는 비밀번호가 올바르지 않습니다."); return; }
+    sessionStorage.setItem("isLoggedIn", "true");
+    sessionStorage.setItem("loggedInUser", JSON.stringify(user));
+    navigate("/account");
+  };
+
+  return (
+    <div className="size-full bg-gray-50 flex flex-col">
+      <div className="bg-white border-b border-gray-200 p-4 flex items-center gap-3">
+        <button onClick={() => navigate(-1)} className="text-blue-600"><X className="w-6 h-6" /></button>
+        <h1 className="text-xl font-bold text-gray-800">로그인</h1>
+      </div>
+      <div className="flex-1 flex flex-col justify-center p-6 space-y-5">
+        <div className="flex flex-col items-center mb-4">
+          <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mb-3">
+            <User className="w-10 h-10 text-blue-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800">여유로</h2>
+          <p className="text-sm text-gray-500 mt-1">계정에 로그인하세요</p>
+        </div>
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">아이디</label>
+          <input type="text" value={formData.username} onChange={(e) => { setFormData({ ...formData, username: e.target.value }); setError(""); }} placeholder="아이디 입력" className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl outline-none focus:border-blue-500" />
+        </div>
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">비밀번호</label>
+          <input type="password" value={formData.password} onChange={(e) => { setFormData({ ...formData, password: e.target.value }); setError(""); }} placeholder="비밀번호 입력" className="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl outline-none focus:border-blue-500" onKeyDown={(e) => { if (e.key === "Enter") handleLogin(); }} />
+        </div>
+        {error && (
+          <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 p-3 rounded-xl">
+            <X className="w-4 h-4 flex-shrink-0" /><span>{error}</span>
+          </div>
+        )}
+        <button onClick={handleLogin} className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-colors">로그인</button>
+        <button onClick={() => navigate("/signup")} className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-200 transition-colors">회원가입</button>
+      </div>
+    </div>
+  );
+}
+
 function MapScreen() {
   return (
     <div className="size-full flex flex-col bg-gray-50">
@@ -704,6 +861,19 @@ function MapScreen() {
 }
 
 function AccountScreen() {
+  const navigate = useNavigate();
+  const [isLoggedIn, setIsLoggedIn] = useState(() => sessionStorage.getItem("isLoggedIn") === "true");
+  const [currentUser, setCurrentUser] = useState<{ username: string; email: string } | null>(() => {
+    try { return JSON.parse(sessionStorage.getItem("loggedInUser") || "null"); } catch { return null; }
+  });
+
+  const handleLogout = () => {
+    sessionStorage.removeItem("isLoggedIn");
+    sessionStorage.removeItem("loggedInUser");
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+  };
+
   return (
     <div className="size-full flex flex-col bg-gray-50">
       <div className="bg-white border-b border-gray-200 p-4">
@@ -714,16 +884,135 @@ function AccountScreen() {
           <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <User className="w-10 h-10 text-blue-600" />
           </div>
-          <h2 className="text-xl font-bold text-gray-800">사용자 이름</h2>
-          <p className="text-sm text-gray-600 mt-1">user@example.com</p>
+          {isLoggedIn && currentUser ? (
+            <>
+              <h2 className="text-xl font-bold text-gray-800">{currentUser.username}</h2>
+              <p className="text-sm text-gray-600 mt-1">{currentUser.email}</p>
+            </>
+          ) : (
+            <h2 className="text-xl font-bold text-gray-800">로그인을 하십시오</h2>
+          )}
         </div>
         <div className="bg-white rounded-xl shadow-md overflow-hidden">
-          <button className="w-full p-4 text-left hover:bg-gray-50 border-b border-gray-100"><span className="text-gray-800 font-medium">프로필 수정</span></button>
-          <button className="w-full p-4 text-left hover:bg-gray-50 border-b border-gray-100"><span className="text-gray-800 font-medium">알림 설정</span></button>
-          <button className="w-full p-4 text-left hover:bg-gray-50"><span className="text-gray-800 font-medium">로그아웃</span></button>
+          {isLoggedIn ? (
+            <>
+              <button onClick={() => navigate("/profile-edit")} className="w-full p-4 text-left hover:bg-gray-50 border-b border-gray-100"><span className="text-gray-800 font-medium">프로필 수정</span></button>
+              <button className="w-full p-4 text-left hover:bg-gray-50 border-b border-gray-100"><span className="text-gray-800 font-medium">알림 설정</span></button>
+              <button onClick={handleLogout} className="w-full p-4 text-left hover:bg-gray-50"><span className="text-gray-800 font-medium">로그아웃</span></button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => navigate("/login")} className="w-full p-4 text-left hover:bg-gray-50 border-b border-gray-100"><span className="text-blue-600 font-medium">로그인</span></button>
+              <button onClick={() => navigate("/signup")} className="w-full p-4 text-left hover:bg-gray-50"><span className="text-gray-800 font-medium">회원가입</span></button>
+            </>
+          )}
         </div>
       </div>
       <BottomNavigation />
+    </div>
+  );
+}
+
+function ProfileEditScreen() {
+  const navigate = useNavigate();
+  const [currentUser, setCurrentUser] = useState<{ username: string; email: string; phone?: string; password: string } | null>(() => {
+    try { return JSON.parse(sessionStorage.getItem("loggedInUser") || "null"); } catch { return null; }
+  });
+  const [formData, setFormData] = useState({
+    email: currentUser?.email || "",
+    phone: currentUser?.phone || "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [successMsg, setSuccessMsg] = useState("");
+
+  const validate = () => {
+    const errs: Record<string, string> = {};
+    if (!formData.email) errs.email = "이메일을 입력해주세요.";
+    if (!formData.phone) errs.phone = "전화번호를 입력해주세요.";
+    if (formData.newPassword && formData.newPassword !== formData.confirmPassword)
+      errs.confirmPassword = "비밀번호가 일치하지 않습니다.";
+    return errs;
+  };
+
+  const handleSave = () => {
+    const errs = validate();
+    if (Object.keys(errs).length > 0) { setErrors(errs); return; }
+    const users: any[] = JSON.parse(localStorage.getItem("users") || "[]");
+    const updatedUser = {
+      ...currentUser!,
+      email: formData.email,
+      phone: formData.phone,
+      ...(formData.newPassword ? { password: formData.newPassword } : {}),
+    };
+    const idx = users.findIndex((u) => u.username === currentUser?.username);
+    if (idx !== -1) users[idx] = updatedUser;
+    localStorage.setItem("users", JSON.stringify(users));
+    sessionStorage.setItem("loggedInUser", JSON.stringify(updatedUser));
+    setCurrentUser(updatedUser);
+    setErrors({});
+    setSuccessMsg("프로필이 저장되었습니다.");
+    setFormData(prev => ({ ...prev, newPassword: "", confirmPassword: "" }));
+    setTimeout(() => { setSuccessMsg(""); navigate("/account"); }, 1200);
+  };
+
+  if (!currentUser) {
+    return (
+      <div className="size-full flex items-center justify-center bg-gray-50">
+        <p className="text-gray-500">로그인이 필요합니다.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="size-full bg-gray-50 flex flex-col">
+      <div className="bg-white border-b border-gray-200 p-4 flex items-center gap-3">
+        <button onClick={() => navigate(-1)} className="text-blue-600"><X className="w-6 h-6" /></button>
+        <h1 className="text-xl font-bold text-gray-800">프로필 수정</h1>
+      </div>
+      <div className="flex-1 overflow-y-auto p-6 space-y-5">
+        <div className="flex flex-col items-center mb-2">
+          <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mb-2">
+            <User className="w-10 h-10 text-blue-600" />
+          </div>
+          <p className="text-lg font-bold text-gray-800">{currentUser.username}</p>
+          <p className="text-xs text-gray-400">아이디는 변경할 수 없습니다</p>
+        </div>
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">이메일</label>
+          <input type="email" value={formData.email} onChange={(e) => { setFormData({ ...formData, email: e.target.value }); setErrors({ ...errors, email: "" }); }} placeholder="example@email.com" className={`w-full px-4 py-3 bg-white border rounded-xl outline-none focus:border-blue-500 ${errors.email ? "border-red-400" : "border-gray-300"}`} />
+          {errors.email && <p className="mt-1 text-xs text-red-500">{errors.email}</p>}
+        </div>
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">전화번호</label>
+          <input type="tel" value={formData.phone} onChange={(e) => { setFormData({ ...formData, phone: e.target.value }); setErrors({ ...errors, phone: "" }); }} placeholder="010-1234-5678" className={`w-full px-4 py-3 bg-white border rounded-xl outline-none focus:border-blue-500 ${errors.phone ? "border-red-400" : "border-gray-300"}`} />
+          {errors.phone && <p className="mt-1 text-xs text-red-500">{errors.phone}</p>}
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 space-y-4">
+          <p className="text-sm font-semibold text-gray-700">비밀번호 변경 <span className="text-gray-400 font-normal">(선택)</span></p>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">새 비밀번호</label>
+            <input type="password" value={formData.newPassword} onChange={(e) => { setFormData({ ...formData, newPassword: e.target.value }); setErrors({ ...errors, confirmPassword: "" }); }} placeholder="새 비밀번호 입력" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-blue-500" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">비밀번호 확인</label>
+            <input type="password" value={formData.confirmPassword} onChange={(e) => { setFormData({ ...formData, confirmPassword: e.target.value }); setErrors({ ...errors, confirmPassword: "" }); }} placeholder="새 비밀번호 재입력" className={`w-full px-4 py-3 bg-gray-50 border rounded-xl outline-none focus:border-blue-500 ${errors.confirmPassword ? "border-red-400" : "border-gray-200"}`} />
+            {errors.confirmPassword && <p className="mt-1 text-xs text-red-500">{errors.confirmPassword}</p>}
+            {formData.newPassword && formData.confirmPassword && formData.newPassword === formData.confirmPassword && (
+              <p className="mt-1 text-xs text-green-600 flex items-center gap-1"><Check className="w-3 h-3" />비밀번호가 일치합니다</p>
+            )}
+          </div>
+        </div>
+        {successMsg && (
+          <div className="flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm">
+            <Check className="w-4 h-4 flex-shrink-0" /><span>{successMsg}</span>
+          </div>
+        )}
+      </div>
+      <div className="bg-white border-t border-gray-200 p-4">
+        <button onClick={handleSave} className="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 transition-colors">저장하기</button>
+      </div>
     </div>
   );
 }
@@ -761,6 +1050,8 @@ function AppContent() {
         <Route path="/map" element={<MapScreen />} />
         <Route path="/account" element={<AccountScreen />} />
         <Route path="/signup" element={<SignupScreen />} />
+        <Route path="/login" element={<LoginScreen />} />
+        <Route path="/profile-edit" element={<ProfileEditScreen />} />
       </Routes>
 
       {showSignupPrompt && (

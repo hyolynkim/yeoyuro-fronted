@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import joblib
 import os
 import sys
 import requests
@@ -17,46 +16,8 @@ app.config['JSON_AS_ASCII'] = False
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-RF_MODEL = None
-LSTM_SCALER = None
-
-def load_ai_models():
-    global RF_MODEL, LSTM_SCALER
-    rf_path = os.path.join(BASE_DIR, 'models', 'congestion_rf.joblib')
-    scaler_path = os.path.join(BASE_DIR, 'models', 'lstm_scaler.joblib')
-    if os.path.exists(rf_path):
-        RF_MODEL = joblib.load(rf_path)
-        print("Random Forest 모델 로드 완료.")
-    else:
-        print("안내: 학습된 Random Forest 파일이 없어 가상 스코어로 대체 작동합니다.")
-    if os.path.exists(scaler_path):
-        LSTM_SCALER = joblib.load(scaler_path)
-        print("LSTM 스케일러 로드 완료.")
-
-# ================================
-# 러시아워 시간대 체크 (시간만 체크)
-# ================================
 def is_rush_hour(hour, minute, weekday):
-    return True  # ✅ 테스트용: 항상 러시아워
-
-    # 테스트 끝나면 아래 주석 해제
-    # total_min = hour * 60 + minute
-    # morning_start = 5 * 60 + 30
-    # morning_end   = 7 * 60 + 30
-    # evening_start = 16 * 60 + 30
-    # evening_end   = 19 * 60 + 30
-    # night_start   = 21 * 60
-    # night_end     = 23 * 60
-    # is_morning = morning_start <= total_min <= morning_end
-    # is_evening = evening_start <= total_min <= evening_end
-    # is_night   = night_start   <= total_min <= night_end
-    # if 0 <= weekday <= 6:
-    #     if is_morning or is_evening:
-    #         return True
-    # if weekday in [4, 5]:
-    #     if is_night:
-    #         return True
-    # return False
+    return True  # 테스트용
 
 def get_weekday_korean(weekday):
     days = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
@@ -72,9 +33,6 @@ def get_rush_hour_type(hour, minute, weekday):
         return "심야 러시아워"
     return "러시아워"
 
-# ================================
-# Gemini 러시아워 경로 분석
-# ================================
 def get_gemini_rush_hour_recommendation(routes, start, end, hour, minute, weekday):
     if not GEMINI_API_KEY:
         return {
@@ -107,7 +65,6 @@ def get_gemini_rush_hour_recommendation(routes, start, end, hour, minute, weekda
 
         prompt = f"""
 당신은 한국 수도권 대중교통 러시아워 전문가입니다.
-한국의 출퇴근 교통 패턴과 광역버스 혼잡도에 대한 풍부한 경험이 있습니다.
 
 현재 상황:
 - 현재 시각: {hour}시 {minute}분
@@ -133,7 +90,7 @@ def get_gemini_rush_hour_recommendation(routes, start, end, hour, minute, weekda
 }}
 """
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
@@ -148,20 +105,21 @@ def get_gemini_rush_hour_recommendation(routes, start, end, hour, minute, weekda
             text = result["candidates"][0]["content"]["parts"][0]["text"]
             text = text.strip().replace("```json", "").replace("```", "").strip()
             return json.loads(text)
-
-        return {
-            "recommended_index": 0,
-            "rush_hour_tip": "Gemini 응답 오류가 발생했습니다.",
-            "alternative": ""
-        }
+        else:
+            print(f"Gemini API 상태코드: {response.status_code}, 응답: {response.text}")
+            return {
+                "recommended_index": 0,
+                "rush_hour_tip": f"Gemini API 오류 ({response.status_code})",
+                "alternative": ""
+            }
 
     except Exception as e:
-    print(f"Gemini 에러: {str(e)}")  # 추가
-    return {
-        "recommended_index": 0,
-        "rush_hour_tip": f"분석 중 오류: {str(e)}",  # 에러 내용 표시
-        "alternative": ""
-    }
+        print(f"Gemini 에러: {str(e)}")
+        return {
+            "recommended_index": 0,
+            "rush_hour_tip": f"분석 중 오류: {str(e)}",
+            "alternative": ""
+        }
 
 @app.route('/predict/congestion', methods=['POST'])
 def predict_congestion():
@@ -192,7 +150,6 @@ def get_optimal_route():
 
     routes = final_result.get("routes", [])
 
-    # ✅ 시간대만 체크 (환승/광역버스 조건 제거)
     rush_hour = is_rush_hour(hour, minute, weekday)
     rush_hour_result = None
 
